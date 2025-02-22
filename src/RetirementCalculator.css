@@ -1,0 +1,170 @@
+/* Reset básico */
+* {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+  }
+  
+  /* Body e Wrapper para centralização vertical e horizontal */
+  body {
+    font-family: 'Roboto', sans-serif;
+    background-color: #f0f2f5;
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  
+  .wrapper {
+    width: 100%;
+    padding: 20px;
+  }
+  
+  /* Card principal */
+  .card {
+    background-color: #ffffff;
+    max-width: 600px;
+    margin: auto;
+    padding: 30px;
+    border-radius: 15px;
+    box-shadow: 0 8px 16px rgba(0, 0, 0, 0.1);
+    transition: transform 0.3s ease, box-shadow 0.3s ease;
+  }
+  
+  .card:hover {
+    transform: translateY(-5px);
+    box-shadow: 0 12px 24px rgba(0, 0, 0, 0.15);
+  }
+  
+  /* Títulos */
+  h2 {
+    text-align: center;
+    margin-bottom: 20px;
+    color: #333;
+  }
+  
+  .section-title {
+    text-align: center;
+    margin: 30px 0 15px;
+    color: #333;
+  }
+  
+  /* Grupos de formulário */
+  .form-group {
+    display: flex;
+    flex-direction: column;
+    margin-bottom: 15px;
+  }
+  
+  .form-group label {
+    font-weight: 600;
+    margin-bottom: 5px;
+    /* Definindo largura mínima para alinhamento uniforme */
+    min-width: 80px;
+  }
+  
+  /* Para inputs e selects, garantindo o mesmo tamanho */
+  input[type="text"],
+  input[type="date"],
+  select {
+    width: 100%;
+    padding: 12px;
+    font-size: 14px;
+    border: 1px solid #ccc;
+    border-radius: 8px;
+    transition: border-color 0.3s ease, box-shadow 0.3s ease;
+  }
+  
+  input[type="text"]:hover,
+  input[type="date"]:hover,
+  select:hover {
+    border-color: #1976d2;
+    box-shadow: 0 0 5px rgba(25, 118, 210, 0.2);
+  }
+  
+  input[type="text"]:focus,
+  input[type="date"]:focus,
+  select:focus {
+    border-color: #1976d2;
+    box-shadow: 0 0 5px rgba(25, 118, 210, 0.4);
+    outline: none;
+  }
+  
+  /* Linha para data de entrada e saída */
+  .form-row {
+    display: flex;
+    gap: 10px;
+  }
+  
+  .form-row .half {
+    flex: 1;
+  }
+  
+  /* Checkbox */
+  .checkbox-container {
+    margin-bottom: 15px;
+  }
+  
+  .checkbox-label {
+    font-size: 14px;
+    font-weight: 600;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  
+  /* Seção de adicionar emprego */
+  .add-job-section {
+    margin-bottom: 20px;
+  }
+  
+  /* Lista de empregos */
+  .job-list {
+    margin: 20px 0;
+    border-top: 1px solid #ddd;
+    padding-top: 10px;
+  }
+  
+  .job-item {
+    padding: 8px 0;
+    font-size: 14px;
+    color: #555;
+    border-bottom: 1px solid #eee;
+  }
+  
+  .job-item:last-child {
+    border-bottom: none;
+  }
+  
+  /* Botões */
+  .button {
+    background-color: #1976d2;
+    color: #fff;
+    padding: 12px 20px;
+    font-size: 16px;
+    border: none;
+    border-radius: 8px;
+    cursor: pointer;
+    transition: background-color 0.3s ease, transform 0.3s ease,
+      box-shadow 0.3s ease;
+    margin-top: 10px;
+  }
+  
+  .button:hover {
+    background-color: #0d47a1;
+    transform: scale(1.02);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+  }
+  
+  .button-primary {
+    width: 100%;
+    font-weight: bold;
+    margin-top: 30px;
+  }
+  
+  /* Seções de pagamento e resultado */
+  .payment-section,
+  .result-section {
+    text-align: center;
+  }
+  
