@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from "react";
 import "./RetirementCalculator.css";
+import { jsPDF } from "jspdf";
 
 export default function RetirementCalculator() {
   const [name, setName] = useState("");
@@ -23,11 +24,89 @@ export default function RetirementCalculator() {
 
   const sessionId = sessionStorage.getItem("sessionId") || generateSessionId();
 
+  const formatDate = (dateStr) => {
+    if (!dateStr) return "Em andamento";
+    const date = new Date(dateStr);
+    return date.toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit", year: "numeric" });
+  };  
+
   function generateSessionId() {
     const id = Math.random().toString(36).substring(2, 15);
     sessionStorage.setItem("sessionId", id);
     return id;
   }
+
+  const handleExportPDF = () => {
+    const doc = new jsPDF();
+    let y = 20;
+  
+    const totalYearsBeforeCutoff = parseFloat(sessionStorage.getItem("totalYearsBeforeCutoff")) || 0;
+    const totalYearsAfterCutoff = parseFloat(sessionStorage.getItem("totalYearsAfterCutoff")) || 0;
+    const jobsBeforeCutoff = JSON.parse(sessionStorage.getItem("jobsBeforeCutoff")) || [];
+    const jobsAfterCutoff = JSON.parse(sessionStorage.getItem("jobsAfterCutoff")) || [];
+  
+    doc.setFontSize(16);
+    doc.text("Relatório de Trabalho", 20, y);
+    y += 10;
+  
+    doc.setFontSize(12);
+    doc.text(`Nome: ${name}`, 20, y);
+    y += 10;
+    doc.text(`Gênero: ${gender === "male" ? "Homem" : "Mulher"}`, 20, y);
+    y += 15;
+  
+    // Regras Antigas
+    doc.setFontSize(14);
+    doc.text("Regras Antigas (Até 13 de Novembro de 2019)", 20, y);
+    y += 10;
+    doc.setFontSize(12);
+    doc.text(`Total trabalhado: ${Math.floor(totalYearsBeforeCutoff)} anos e ${Math.round((totalYearsBeforeCutoff - Math.floor(totalYearsBeforeCutoff)) * 12)} meses`, 20, y);
+    y += 10;
+  
+    jobsBeforeCutoff.forEach((job) => {
+      doc.text(`- ${job.companyName}: ${job.entryDate} até ${job.exitDate} (${job.diffYears.toFixed(2)} anos)`, 20, y);
+      y += 8;
+    });
+  
+    y += 10;
+  
+    // Regras de Transição
+    doc.setFontSize(14);
+    doc.text("Regras de Transição (Depois de 13 de Novembro de 2019)", 20, y);
+    y += 10;
+    doc.setFontSize(12);
+    doc.text(`Total trabalhado: ${Math.floor(totalYearsAfterCutoff)} anos e ${Math.round((totalYearsAfterCutoff - Math.floor(totalYearsAfterCutoff)) * 12)} meses`, 20, y);
+    y += 10;
+  
+    jobsAfterCutoff.forEach((job) => {
+      doc.text(`- ${job.companyName}: ${job.entryDate} até ${job.exitDate} (${job.diffYears.toFixed(2)} anos)`, 20, y);
+      y += 8;
+    });
+  
+    doc.save("relatorio_trabalho.pdf");
+  };
+
+  const handleEdit = () => {
+    const storedName = sessionStorage.getItem("name");
+    const storedGender = sessionStorage.getItem("gender");
+    const storedJobs = JSON.parse(sessionStorage.getItem("jobs")) || [];
+  
+    setName(storedName || "");
+    setGender(storedGender || "male");
+    setJobs(storedJobs);
+  
+    setScreen("form"); // Retorna para a tela inicial
+  };  
+
+  useEffect(() => {
+    return () => {
+      const websocket = sessionStorage.getItem("websocket");
+      if (websocket) {
+        websocket.close();
+        sessionStorage.removeItem("websocket");
+      }
+    };
+  }, []);  
 
   useEffect(() => {
     const storedTotalYears = sessionStorage.getItem("totalYears");
@@ -50,15 +129,20 @@ export default function RetirementCalculator() {
   }, [showProcessingMessage, showPaymentApproved]);
 
   const handleWebSocket = () => {
-    const websocket = new WebSocket(`wss://a6sik36j10.execute-api.us-east-1.amazonaws.com/$default?sessionId=${sessionId}`);
-
+    let websocket = sessionStorage.getItem("websocket");
+  
+    if (!websocket || websocket.readyState === WebSocket.CLOSED) {
+      websocket = new WebSocket(`wss://a6sik36j10.execute-api.us-east-1.amazonaws.com/$default?sessionId=${sessionId}`);
+      sessionStorage.setItem("websocket", websocket);
+    }
+  
     websocket.onmessage = (event) => {
       const message = JSON.parse(event.data);
-
+  
       if (message.type === "payment_update" && message.status === "approved") {
         setShowProcessingMessage(false);
         setShowPaymentApproved(true);
-
+  
         let counter = 10;
         const interval = setInterval(() => {
           setCountdown(counter);
@@ -70,7 +154,31 @@ export default function RetirementCalculator() {
         }, 1000);
       }
     };
-  };
+  
+    websocket.onerror = (error) => {
+      console.error("Erro no WebSocket:", error);
+    };
+  };  
+
+  const filterJobsUntil2019 = () => {
+    const cutoffDate = new Date("2019-12-31");
+  
+    return jobs.map((job) => {
+      const entry = new Date(job.entryDate);
+      const exit = new Date(job.exitDate);
+  
+      if (exit > cutoffDate) {
+        exit.setFullYear(2019, 11, 31); // Ajusta para 31/12/2019
+      }
+  
+      if (entry > cutoffDate) {
+        return null; // Ignora períodos que começam após 2019
+      }
+  
+      const diffYears = (exit - entry) / (1000 * 60 * 60 * 24 * 365.25);
+      return { ...job, diffYears };
+    }).filter(Boolean);
+  };  
 
   const addJob = () => {
     if (!entryDate || !exitDate || !companyName) return;
@@ -86,7 +194,8 @@ export default function RetirementCalculator() {
   };
 
   const calculateRetirement = () => {
-    const total = jobs.reduce((acc, job) => acc + job.diffYears * job.conversionFactor, 0);
+    const filteredJobs = filterJobsUntil2019();
+    const total = filteredJobs.reduce((acc, job) => acc + job.diffYears * job.conversionFactor, 0);    
     const requiredYears = gender === "male" ? 35 : 30;
     const remaining = Math.max(0, requiredYears - total);
     
@@ -141,13 +250,47 @@ export default function RetirementCalculator() {
   };
 
   const proceedToResult = () => {
-    const total = jobs.reduce((acc, job) => acc + job.diffYears * job.conversionFactor, 0);
-    const requiredYears = gender === "male" ? 35 : 30;
-    const remaining = Math.max(0, requiredYears - total);
-    setTotalYears(total);
-    setRemainingYears(remaining);
+    const cutoffDate = new Date("2019-11-13"); // Data da Reforma da Previdência
+    const jobsBeforeCutoff = [];
+    const jobsAfterCutoff = [];
+  
+    jobs.forEach((job) => {
+      const entry = new Date(job.entryDate);
+      const exit = job.exitDate ? new Date(job.exitDate) : new Date(); // Se não houver saída, assume "hoje"
+  
+      if (entry < cutoffDate) {
+        const adjustedExitBeforeCutoff = exit > cutoffDate ? cutoffDate : exit;
+        const diffBeforeCutoff = (adjustedExitBeforeCutoff - entry) / (1000 * 60 * 60 * 24 * 365.25);
+        jobsBeforeCutoff.push({
+          ...job,
+          entryDate: formatDate(job.entryDate),
+          exitDate: formatDate(adjustedExitBeforeCutoff),
+          diffYears: diffBeforeCutoff * job.conversionFactor,
+        });
+      }
+  
+      if (exit > cutoffDate) {
+        const adjustedEntryAfterCutoff = entry < cutoffDate ? cutoffDate : entry;
+        const diffAfterCutoff = (exit - adjustedEntryAfterCutoff) / (1000 * 60 * 60 * 24 * 365.25);
+        jobsAfterCutoff.push({
+          ...job,
+          entryDate: formatDate(adjustedEntryAfterCutoff),
+          exitDate: formatDate(job.exitDate),
+          diffYears: diffAfterCutoff * job.conversionFactor,
+        });
+      }
+    });
+  
+    const totalYearsBeforeCutoff = jobsBeforeCutoff.reduce((acc, job) => acc + job.diffYears, 0);
+    const totalYearsAfterCutoff = jobsAfterCutoff.reduce((acc, job) => acc + job.diffYears, 0);
+  
+    sessionStorage.setItem("totalYearsBeforeCutoff", totalYearsBeforeCutoff);
+    sessionStorage.setItem("totalYearsAfterCutoff", totalYearsAfterCutoff);
+    sessionStorage.setItem("jobsBeforeCutoff", JSON.stringify(jobsBeforeCutoff));
+    sessionStorage.setItem("jobsAfterCutoff", JSON.stringify(jobsAfterCutoff));
+  
     setScreen("result");
-  };
+  };  
 
   if (screen === "payment") {
     return (
@@ -203,22 +346,61 @@ export default function RetirementCalculator() {
       </div>
     );
   }
-
+  
   if (screen === "result") {
+    const totalYearsBeforeCutoff = parseFloat(sessionStorage.getItem("totalYearsBeforeCutoff")) || 0;
+    const totalYearsAfterCutoff = parseFloat(sessionStorage.getItem("totalYearsAfterCutoff")) || 0;
+    const jobsBeforeCutoff = JSON.parse(sessionStorage.getItem("jobsBeforeCutoff")) || [];
+    const jobsAfterCutoff = JSON.parse(sessionStorage.getItem("jobsAfterCutoff")) || [];
+  
     return (
       <div className="card result-section">
         <h2>Resultado do Cálculo</h2>
+  
+        {/* Regras Antigas */}
+        <h3>Regras Antigas (Até 13 de Novembro de 2019)</h3>
         <p>
-          <strong>{name}</strong>, você já trabalhou {Math.floor(totalYears)} anos e{" "}
-          {Math.round((totalYears - Math.floor(totalYears)) * 12)} meses.
+          <strong>{name}</strong>, você já trabalhou {Math.floor(totalYearsBeforeCutoff)} anos e{" "}
+          {Math.round((totalYearsBeforeCutoff - Math.floor(totalYearsBeforeCutoff)) * 12)} meses até 13/11/2019.
         </p>
+        <h4>Histórico de Trabalhos (Antes da Reforma)</h4>
+        {jobsBeforeCutoff.length > 0 ? (
+          <ul>
+            {jobsBeforeCutoff.map((job, index) => (
+              <li key={index}>
+                {job.companyName} - Início: {job.entryDate} | Fim: {job.exitDate} ({job.diffYears.toFixed(2)} anos)
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <p>Nenhum emprego antes de 13/11/2019.</p>
+        )}
+  
+        {/* Regras de Transição */}
+        <h3>Regras de Transição (Depois de 13 de Novembro de 2019)</h3>
         <p>
-          Faltam {Math.floor(remainingYears)} anos e{" "}
-          {Math.round((remainingYears - Math.floor(remainingYears)) * 12)} meses para sua aposentadoria.
+          <strong>{name}</strong>, você já trabalhou {Math.floor(totalYearsAfterCutoff)} anos e{" "}
+          {Math.round((totalYearsAfterCutoff - Math.floor(totalYearsAfterCutoff)) * 12)} meses após 13/11/2019.
         </p>
+        <h4>Histórico de Trabalhos (Após a Reforma)</h4>
+        {jobsAfterCutoff.length > 0 ? (
+          <ul>
+            {jobsAfterCutoff.map((job, index) => (
+              <li key={index}>
+                {job.companyName} - Início: {job.entryDate} | Fim: {job.exitDate} ({job.diffYears.toFixed(2)} anos)
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <p>Nenhum emprego após 13/11/2019.</p>
+        )}
+        <div className="button-group">
+          <button className="button" onClick={handleEdit}>Editar</button>
+          <button className="button" onClick={handleExportPDF}>Exportar PDF</button>
+        </div>
       </div>
     );
-  }
+  }  
 
   return (
     <div className="wrapper">

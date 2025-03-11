@@ -221,3 +221,61 @@
 .copy-button:hover {
   background-color: #1259a7;
 }
+
+h3 {
+  text-align: center;
+  margin-top: 20px;
+  color: #1976d2;
+  font-weight: bold;
+}
+
+h4 {
+  text-align: center;
+  margin-top: 10px;
+  font-size: 16px;
+  font-weight: bold;
+  color: #555;
+}
+
+ul {
+  list-style-type: none;
+  padding: 0;
+}
+
+ul li {
+  background: #f9f9f9;
+  padding: 10px;
+  margin: 5px 0;
+  border-radius: 8px;
+  font-size: 14px;
+  color: #333;
+  text-align: center;
+  border: 1px solid #ddd;
+}
+
+.result-section {
+  text-align: center;
+  background: #fff;
+  padding: 20px;
+  border-radius: 12px;
+  box-shadow: 0 4px 10px rgba(0, 0, 0, 0.1);
+}
+
+.button-group {
+  display: flex;
+  justify-content: center;
+  gap: 15px;
+  margin-top: 20px;
+}
+
+.button-group .button {
+  padding: 12px 20px;
+  font-size: 16px;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: background-color 0.3s ease, transform 0.3s ease;
+}
+
+.button-group .button:hover {
+  transform: scale(1.05);
+}
