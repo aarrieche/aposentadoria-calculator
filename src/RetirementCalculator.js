@@ -19,6 +19,7 @@ export default function RetirementCalculator() {
   const [showPaymentApproved, setShowPaymentApproved] = useState(false);
   const [countdown, setCountdown] = useState(10);
   const [dots, setDots] = useState("");
+  const [qrCodeCopyPaste, setQrCodeCopyPaste] = useState("");
 
   const sessionId = sessionStorage.getItem("sessionId") || generateSessionId();
 
@@ -27,6 +28,16 @@ export default function RetirementCalculator() {
     sessionStorage.setItem("sessionId", id);
     return id;
   }
+
+  useEffect(() => {
+    const storedTotalYears = sessionStorage.getItem("totalYears");
+    const storedRemainingYears = sessionStorage.getItem("remainingYears");
+  
+    if (storedTotalYears && storedRemainingYears) {
+      setTotalYears(parseFloat(storedTotalYears));
+      setRemainingYears(parseFloat(storedRemainingYears));
+    }
+  }, []);  
 
   // Animação dos três pontos piscando
   useEffect(() => {
@@ -54,7 +65,7 @@ export default function RetirementCalculator() {
           counter--;
           if (counter < 0) {
             clearInterval(interval);
-            setScreen("result");
+            proceedToResult();
           }
         }, 1000);
       }
@@ -75,7 +86,22 @@ export default function RetirementCalculator() {
   };
 
   const calculateRetirement = () => {
+    const total = jobs.reduce((acc, job) => acc + job.diffYears * job.conversionFactor, 0);
+    const requiredYears = gender === "male" ? 35 : 30;
+    const remaining = Math.max(0, requiredYears - total);
+    
+    setTotalYears(total);
+    setRemainingYears(remaining);
+  
+    sessionStorage.setItem("totalYears", total);
+    sessionStorage.setItem("remainingYears", remaining);
+    
     setScreen("payment");
+  };  
+
+  const copyToClipboard = () => {
+    navigator.clipboard.writeText(qrCodeCopyPaste);
+    alert("Código Pix copiado!");
   };
 
   const proceedToCalculation = async (type) => {
@@ -102,6 +128,7 @@ export default function RetirementCalculator() {
 
       if (type === "pix") {
         setQrCode(data.qrCodeBase64);
+        setQrCodeCopyPaste(data.qrCodeCopyPaste);
       } else if (type === "credit") {
         window.open(data.paymentLink, "_blank");
       }
@@ -150,8 +177,17 @@ export default function RetirementCalculator() {
 
         {qrCode && (
           <div className="qr-code-section">
-            <h3>Realize o pagamento para prosseguir</h3>
+            <h3>Realize o pagamento escaneando o QR Code ou copie o código abaixo:</h3>
             <img src={`data:image/png;base64,${qrCode}`} alt="QR Code" />
+            
+            {qrCodeCopyPaste && (
+              <div className="pix-copy-container">
+                <input type="text" value={qrCodeCopyPaste} readOnly className="pix-code" />
+                <button className="copy-button" onClick={copyToClipboard}>
+                  Copiar Código
+                </button>
+              </div>
+            )}
           </div>
         )}
 

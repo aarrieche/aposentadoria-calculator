@@ -190,3 +190,34 @@
 .qr-code-section img:hover {
   transform: scale(1.1); /* ✅ Efeito de zoom ao passar o mouse */
 }
+
+.pix-copy-container {
+  display: flex;
+  align-items: center;
+  margin-top: 10px;
+}
+
+.pix-code {
+  flex: 1;
+  padding: 10px;
+  font-size: 14px;
+  border: 1px solid #ccc;
+  border-radius: 5px;
+  text-align: center;
+  background-color: #f9f9f9;
+}
+
+.copy-button {
+  margin-left: 10px;
+  padding: 10px;
+  font-size: 14px;
+  background-color: #1976d2;
+  color: white;
+  border: none;
+  border-radius: 5px;
+  cursor: pointer;
+}
+
+.copy-button:hover {
+  background-color: #1259a7;
+}
