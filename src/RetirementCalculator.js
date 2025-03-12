@@ -36,6 +36,45 @@ export default function RetirementCalculator() {
     return id;
   }
 
+  const groupJobsByCompany = (jobs) => {
+    const grouped = {};
+    
+    jobs.forEach((job) => {
+        if (!grouped[job.companyName]) {
+            grouped[job.companyName] = {
+                totalYears: 0,
+                periods: [],
+                isSpecial: false,  // 🔹 Inicializa como falso
+            };
+        }
+
+        grouped[job.companyName].totalYears += job.diffYears;
+        grouped[job.companyName].periods.push(job);
+
+        // 🔹 Se qualquer período for insalubre, marcar como especial
+        if (job.insalubre) {
+            grouped[job.companyName].isSpecial = true;
+        }
+    });
+
+    return Object.entries(grouped).map(([companyName, data]) => ({
+        companyName,
+        totalYears: data.totalYears,
+        periods: data.periods,
+        isSpecial: data.isSpecial,
+    }));
+  };
+
+  const formatYearsMonthsDays = (years) => {
+    const totalDays = Math.round(years * 365.25);
+    const yearsPart = Math.floor(totalDays / 365);
+    const remainingDays = totalDays % 365;
+    const monthsPart = Math.floor(remainingDays / 30);
+    const daysPart = remainingDays % 30;
+  
+    return `${yearsPart} anos, ${monthsPart} meses e ${daysPart} dias`;
+  };  
+
   const handleExportPDF = () => {
     const doc = new jsPDF();
     let y = 20;
@@ -64,7 +103,8 @@ export default function RetirementCalculator() {
     y += 10;
   
     jobsBeforeCutoff.forEach((job) => {
-      doc.text(`- ${job.companyName}: ${job.entryDate} até ${job.exitDate} (${job.diffYears.toFixed(2)} anos)`, 20, y);
+      doc.text(`- ${job.companyName}: ${job.entryDate} até ${job.exitDate} (${formatYearsMonthsDays(job.diffYears)}
+ anos)`, 20, y);
       y += 8;
     });
   
@@ -79,7 +119,7 @@ export default function RetirementCalculator() {
     y += 10;
   
     jobsAfterCutoff.forEach((job) => {
-      doc.text(`- ${job.companyName}: ${job.entryDate} até ${job.exitDate} (${job.diffYears.toFixed(2)} anos)`, 20, y);
+      doc.text(`- ${job.companyName}: ${job.entryDate} até ${job.exitDate} (${formatYearsMonthsDays(job.diffYears)} anos)`, 20, y);
       y += 8;
     });
   
@@ -100,10 +140,9 @@ export default function RetirementCalculator() {
 
   useEffect(() => {
     return () => {
-      const websocket = sessionStorage.getItem("websocket");
-      if (websocket) {
-        websocket.close();
-        sessionStorage.removeItem("websocket");
+      if (window.websocket) {
+        window.websocket.close();
+        window.websocket = null;
       }
     };
   }, []);  
@@ -129,36 +168,45 @@ export default function RetirementCalculator() {
   }, [showProcessingMessage, showPaymentApproved]);
 
   const handleWebSocket = () => {
-    let websocket = sessionStorage.getItem("websocket");
-  
-    if (!websocket || websocket.readyState === WebSocket.CLOSED) {
-      websocket = new WebSocket(`wss://a6sik36j10.execute-api.us-east-1.amazonaws.com/$default?sessionId=${sessionId}`);
-      sessionStorage.setItem("websocket", websocket);
+    if (window.websocket && window.websocket.readyState !== WebSocket.CLOSED) {
+        console.log("WebSocket já aberto.");
+        return;
     }
-  
+
+    console.log("Abrindo WebSocket para sessionId:", sessionId);
+
+    const websocket = new WebSocket(`wss://a6sik36j10.execute-api.us-east-1.amazonaws.com/$default?sessionId=${sessionId}`);
+
+    window.websocket = websocket; // 🔹 Armazena corretamente o WebSocket
+
     websocket.onmessage = (event) => {
-      const message = JSON.parse(event.data);
-  
-      if (message.type === "payment_update" && message.status === "approved") {
-        setShowProcessingMessage(false);
-        setShowPaymentApproved(true);
-  
-        let counter = 10;
-        const interval = setInterval(() => {
-          setCountdown(counter);
-          counter--;
-          if (counter < 0) {
-            clearInterval(interval);
-            proceedToResult();
-          }
-        }, 1000);
-      }
+        const message = JSON.parse(event.data);
+
+        if (message.type === "payment_update" && message.status === "approved") {
+            console.log("Pagamento aprovado. Atualizando UI...");
+            setShowProcessingMessage(false);
+            setShowPaymentApproved(true);
+
+            let counter = 10;
+            const interval = setInterval(() => {
+                setCountdown(counter);
+                counter--;
+                if (counter < 0) {
+                    clearInterval(interval);
+                    proceedToResult();
+                }
+            }, 1000);
+        }
     };
-  
+
     websocket.onerror = (error) => {
-      console.error("Erro no WebSocket:", error);
+        console.error("Erro no WebSocket:", error);
     };
-  };  
+
+    websocket.onclose = () => {
+        console.warn("WebSocket fechado.");
+    };
+  };
 
   const filterJobsUntil2019 = () => {
     const cutoffDate = new Date("2019-12-31");
@@ -186,7 +234,19 @@ export default function RetirementCalculator() {
     const end = new Date(exitDate);
     const diffYears = (end - start) / (1000 * 60 * 60 * 24 * 365.25);
     const conversionFactor = insalubre ? (gender === "male" ? 1.4 : 1.2) : 1;
-    setJobs([...jobs, { companyName, entryDate, exitDate, diffYears, conversionFactor }]);
+
+    setJobs([
+        ...jobs,
+        {
+            companyName,
+            entryDate,
+            exitDate,
+            diffYears,
+            conversionFactor,
+            insalubre,  // 🔹 Garante que o atributo seja salvo
+        }
+    ]);
+
     setCompanyName("");
     setEntryDate("");
     setExitDate("");
@@ -353,47 +413,76 @@ export default function RetirementCalculator() {
     const jobsBeforeCutoff = JSON.parse(sessionStorage.getItem("jobsBeforeCutoff")) || [];
     const jobsAfterCutoff = JSON.parse(sessionStorage.getItem("jobsAfterCutoff")) || [];
   
+    // 🔹 Agrupa os empregos antes e depois da reforma
+    const groupedJobsBefore = groupJobsByCompany(jobsBeforeCutoff);
+    const groupedJobsAfter = groupJobsByCompany(jobsAfterCutoff);
+
     return (
       <div className="card result-section">
         <h2>Resultado do Cálculo</h2>
-  
-        {/* Regras Antigas */}
-        <h3>Regras Antigas (Até 13 de Novembro de 2019)</h3>
+        {/* Regras antes da Reforma (até 13/11/2019) */}
+        <h3>Regras antes da Reforma (até 13/11/2019)</h3>
+        <p className="info-text">
+          Os períodos abaixo incluem trabalho comum e especial, conforme regras vigentes até a reforma da previdência.
+        </p>
         <p>
-          <strong>{name}</strong>, você já trabalhou {Math.floor(totalYearsBeforeCutoff)} anos e{" "}
-          {Math.round((totalYearsBeforeCutoff - Math.floor(totalYearsBeforeCutoff)) * 12)} meses até 13/11/2019.
+          <strong>{name}</strong>, você já trabalhou {formatYearsMonthsDays(totalYearsBeforeCutoff)} até 13/11/2019.
         </p>
         <h4>Histórico de Trabalhos (Antes da Reforma)</h4>
-        {jobsBeforeCutoff.length > 0 ? (
+
+        {groupedJobsBefore.length > 0 ? (
           <ul>
-            {jobsBeforeCutoff.map((job, index) => (
+            {groupedJobsBefore.map((group, index) => (
               <li key={index}>
-                {job.companyName} - Início: {job.entryDate} | Fim: {job.exitDate} ({job.diffYears.toFixed(2)} anos)
+                <strong>{group.companyName}</strong>
+                {group.isSpecial && <p className="special-text">🔥 Período de Trabalho Especial</p>}
+                <ul>
+                  {group.periods.map((job, subIndex) => (
+                    <li key={subIndex}>
+                      Início: {job.entryDate} | Fim: {job.exitDate} ({formatYearsMonthsDays(job.diffYears)})
+                      {job.insalubre && <span style={{ color: "red", fontWeight: "bold" }}> [INSALUBRE]</span>}
+                    </li>
+                  ))}
+                  <li><strong>Total:</strong> {formatYearsMonthsDays(group.totalYears)}</li>
+                </ul>
               </li>
             ))}
           </ul>
         ) : (
           <p>Nenhum emprego antes de 13/11/2019.</p>
         )}
-  
-        {/* Regras de Transição */}
-        <h3>Regras de Transição (Depois de 13 de Novembro de 2019)</h3>
+
+        {/* Regras de Transição (Depois de 13/11/2019) */}
+        <h3>Regras de Transição (Depois de 13/11/2019)</h3>
+        <p className="info-text">
+          Períodos trabalhados sob as novas regras da previdência.
+        </p>
         <p>
-          <strong>{name}</strong>, você já trabalhou {Math.floor(totalYearsAfterCutoff)} anos e{" "}
-          {Math.round((totalYearsAfterCutoff - Math.floor(totalYearsAfterCutoff)) * 12)} meses após 13/11/2019.
+          <strong>{name}</strong>, você já trabalhou {formatYearsMonthsDays(totalYearsAfterCutoff)} após 13/11/2019.
         </p>
         <h4>Histórico de Trabalhos (Após a Reforma)</h4>
-        {jobsAfterCutoff.length > 0 ? (
+
+        {groupedJobsAfter.length > 0 ? (
           <ul>
-            {jobsAfterCutoff.map((job, index) => (
+            {groupedJobsAfter.map((group, index) => (
               <li key={index}>
-                {job.companyName} - Início: {job.entryDate} | Fim: {job.exitDate} ({job.diffYears.toFixed(2)} anos)
+                <strong>{group.companyName}</strong>
+                {group.isSpecial && <p className="special-text">Período de Trabalho Especial</p>}
+                <ul>
+                  {group.periods.map((job, subIndex) => (
+                    <li key={subIndex}>
+                      Início: {job.entryDate} | Fim: {job.exitDate} ({formatYearsMonthsDays(job.diffYears)})
+                    </li>
+                  ))}
+                  <li><strong>Total:</strong> {formatYearsMonthsDays(group.totalYears)}</li>
+                </ul>
               </li>
             ))}
           </ul>
         ) : (
           <p>Nenhum emprego após 13/11/2019.</p>
         )}
+
         <div className="button-group">
           <button className="button" onClick={handleEdit}>Editar</button>
           <button className="button" onClick={handleExportPDF}>Exportar PDF</button>
