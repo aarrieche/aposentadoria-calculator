@@ -72,7 +72,7 @@ export default function RetirementCalculator() {
     const monthsPart = Math.floor(remainingDays / 30);
     const daysPart = remainingDays % 30;
   
-    return `${yearsPart} anos, ${monthsPart} meses e ${daysPart} dias`;
+    return `${yearsPart} ano(s), ${monthsPart} mês(es) e ${daysPart} dia(s)`;
   };  
 
   const handleExportPDF = () => {
@@ -85,7 +85,8 @@ export default function RetirementCalculator() {
     const jobsAfterCutoff = JSON.parse(sessionStorage.getItem("jobsAfterCutoff")) || [];
   
     doc.setFontSize(16);
-    doc.text("Relatório de Trabalho", 20, y);
+    doc.text("Relatório de Contribuições", 20, y);
+    
     y += 10;
   
     doc.setFontSize(12);
@@ -99,7 +100,7 @@ export default function RetirementCalculator() {
     doc.text("Regras Antigas (Até 13 de Novembro de 2019)", 20, y);
     y += 10;
     doc.setFontSize(12);
-    doc.text(`Total trabalhado: ${Math.floor(totalYearsBeforeCutoff)} anos e ${Math.round((totalYearsBeforeCutoff - Math.floor(totalYearsBeforeCutoff)) * 12)} meses`, 20, y);
+    doc.text(`Total contribuído: ${Math.floor(totalYearsBeforeCutoff)} anos e ${Math.round((totalYearsBeforeCutoff - Math.floor(totalYearsBeforeCutoff)) * 12)} meses`, 20, y);
     y += 10;
   
     jobsBeforeCutoff.forEach((job) => {
@@ -426,9 +427,9 @@ export default function RetirementCalculator() {
           Os períodos abaixo incluem trabalho comum e especial, conforme regras vigentes até a reforma da previdência.
         </p>
         <p>
-          <strong>{name}</strong>, você já trabalhou {formatYearsMonthsDays(totalYearsBeforeCutoff)} até 13/11/2019.
+          <strong>{name}</strong>, você já contribuiu {formatYearsMonthsDays(totalYearsBeforeCutoff)} até 13/11/2019.
         </p>
-        <h4>Histórico de Trabalhos (Antes da Reforma)</h4>
+        <h4>Histórico de Contribuições (Antes da Reforma)</h4>
 
         {groupedJobsBefore.length > 0 ? (
           <ul>
@@ -443,7 +444,7 @@ export default function RetirementCalculator() {
                       {job.insalubre && <span style={{ color: "red", fontWeight: "bold" }}> [INSALUBRE]</span>}
                     </li>
                   ))}
-                  <li><strong>Total:</strong> {formatYearsMonthsDays(group.totalYears)}</li>
+                  <li><strong>Total (comum + especial):</strong> {formatYearsMonthsDays(group.totalYears)}</li>
                 </ul>
               </li>
             ))}
@@ -458,23 +459,22 @@ export default function RetirementCalculator() {
           Períodos trabalhados sob as novas regras da previdência.
         </p>
         <p>
-          <strong>{name}</strong>, você já trabalhou {formatYearsMonthsDays(totalYearsAfterCutoff)} após 13/11/2019.
+          <strong>{name}</strong>, você já contribuiu {formatYearsMonthsDays(totalYearsAfterCutoff)} após 13/11/2019.
         </p>
-        <h4>Histórico de Trabalhos (Após a Reforma)</h4>
+        <h4>Histórico de Contribuições (Após a Reforma)</h4>
 
         {groupedJobsAfter.length > 0 ? (
           <ul>
             {groupedJobsAfter.map((group, index) => (
               <li key={index}>
                 <strong>{group.companyName}</strong>
-                {group.isSpecial && <p className="special-text">Período de Trabalho Especial</p>}
                 <ul>
                   {group.periods.map((job, subIndex) => (
                     <li key={subIndex}>
                       Início: {job.entryDate} | Fim: {job.exitDate} ({formatYearsMonthsDays(job.diffYears)})
                     </li>
                   ))}
-                  <li><strong>Total:</strong> {formatYearsMonthsDays(group.totalYears)}</li>
+                  <li><strong>Total (comum + especial):</strong> {formatYearsMonthsDays(group.totalYears)}</li>
                 </ul>
               </li>
             ))}
@@ -487,6 +487,17 @@ export default function RetirementCalculator() {
           <button className="button" onClick={handleEdit}>Editar</button>
           <button className="button" onClick={handleExportPDF}>Exportar PDF</button>
         </div>
+        <p className="info-text" style={{ marginTop: "20px", fontSize: "12px" }}>
+          <strong>Trabalho especial:</strong> Pode incluir profissões ou atividades com insalubridade, ruídos altos, agentes químicos, entre outros, desde que comprovado por documentos de trabalho.
+          <br />
+          <a href="https://www.gov.br/pt-br/servicos/aposentadoria-especial" target="_blank" rel="noopener noreferrer">
+            Clique aqui para saber mais sobre atividades especiais e documentos necessários.
+          </a>
+          <br />
+          <a href="https://www.instagram.com/katia.raiter/?igsh=bm1jdnd3a3drYnRv#" target="_blank" rel="noopener noreferrer">
+            Leia também este artigo.
+          </a>
+        </p>
       </div>
     );
   }  
@@ -526,10 +537,10 @@ export default function RetirementCalculator() {
             </div>
           </div>
           <div className="checkbox-container">
-            <label className="checkbox-label">
-              <input type="checkbox" checked={insalubre} onChange={() => setInsalubre(!insalubre)} />
-              Trabalho insalubre?
-            </label>
+          <label className="checkbox-label">
+            <input type="checkbox" checked={insalubre} onChange={() => setInsalubre(!insalubre)} />
+            Período especial?
+          </label>
           </div>
           <button className="button" onClick={addJob}>
             Adicionar Emprego
