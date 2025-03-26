@@ -36,6 +36,12 @@ export default function RetirementCalculator() {
     return id;
   }
 
+  const removeJob = (indexToRemove) => {
+    const updatedJobs = jobs.filter((_, index) => index !== indexToRemove);
+    setJobs(updatedJobs);
+    sessionStorage.setItem("jobs", JSON.stringify(updatedJobs));
+  };  
+
   const groupJobsByCompany = (jobs) => {
     const grouped = {};
     
@@ -263,6 +269,10 @@ export default function RetirementCalculator() {
     setTotalYears(total);
     setRemainingYears(remaining);
   
+    // 🔹 Salva no sessionStorage para o botão Editar funcionar corretamente
+    sessionStorage.setItem("name", name);
+    sessionStorage.setItem("gender", gender);
+    sessionStorage.setItem("jobs", JSON.stringify(jobs));
     sessionStorage.setItem("totalYears", total);
     sessionStorage.setItem("remainingYears", remaining);
     
@@ -357,6 +367,9 @@ export default function RetirementCalculator() {
     return (
       <div className="card payment-section">
         <h2>Selecione método de pagamento</h2>
+        <button className="button" style={{ marginBottom: "10px", backgroundColor: "#ccc", color: "#000" }} onClick={proceedToResult}>
+          Pular pagamento (modo teste)
+        </button>
         <div className="form-group">
           <label>Email:</label>
           <input
@@ -441,7 +454,7 @@ export default function RetirementCalculator() {
                   {group.periods.map((job, subIndex) => (
                     <li key={subIndex}>
                       Início: {job.entryDate} | Fim: {job.exitDate} ({formatYearsMonthsDays(job.diffYears)})
-                      {job.insalubre && <span style={{ color: "red", fontWeight: "bold" }}> [INSALUBRE]</span>}
+                      {job.insalubre && <span style={{ color: "red", fontWeight: "bold" }}> [ESPECIAL]</span>}
                     </li>
                   ))}
                   <li><strong>Total (comum + especial):</strong> {formatYearsMonthsDays(group.totalYears)}</li>
@@ -550,8 +563,15 @@ export default function RetirementCalculator() {
         {jobs.length > 0 && (
           <div className="job-list">
             {jobs.map((job, index) => (
-              <div key={index} className="job-item">
-                {job.companyName} - ({job.entryDate} - {job.exitDate})
+              <div key={index} className="job-item" style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                <span>{job.companyName} - ({job.entryDate} - {job.exitDate})</span>
+                <button
+                  className="button"
+                  style={{ backgroundColor: "#e74c3c", color: "#fff", marginLeft: "10px" }}
+                  onClick={() => removeJob(index)}
+                >
+                  Remover
+                </button>
               </div>
             ))}
           </div>
