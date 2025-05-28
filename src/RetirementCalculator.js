@@ -61,7 +61,50 @@ export default function RetirementCalculator() {
     return `${duration.years ?? 0} ano(s), ${duration.months ?? 0} mês(es) e ${duration.days ?? 0} dia(s)`;
   };
 
+  function somarDuracoesTextuais(duracao1, duracao2) {
+    const [anos1, meses1, dias1] = duracao1.match(/\d+/g).map(Number);
+    const [anos2, meses2, dias2] = duracao2.match(/\d+/g).map(Number);
 
+    let totalDias = anos1 * 365 + meses1 * 30 + dias1;
+    totalDias += anos2 * 365 + meses2 * 30 + dias2;
+
+    const anos = Math.floor(totalDias / 365);
+    const meses = Math.floor((totalDias % 365) / 30);
+    const dias = totalDias % 30;
+
+    return `${anos} ano(s), ${meses} mês(es) e ${dias} dia(s)`;
+  }
+
+  const somarDuracoesComMultiplicador = (jobs, aplicarMultiplicador = false, gender = 'male') => {
+    let totalDias = 0;
+
+    jobs.forEach((job) => {
+      const start = parseLocalDate(job.entryDate);
+      const end = job.exitDate ? parseLocalDate(job.exitDate) : new Date();
+
+      if (!start || isNaN(start) || !end || isNaN(end)) {
+        console.warn("Data inválida detectada: ", job);
+        return;
+      }
+
+      const duration = intervalToDuration({ start, end });
+      const dias = (duration.years ?? 0) * 365 + (duration.months ?? 0) * 30 + (duration.days ?? 0);
+
+      let fator = 1;
+      if (aplicarMultiplicador && job.insalubre) {
+        fator = gender === 'male' ? 1.4 : 1.2;
+      }
+
+      totalDias += dias * fator;
+    });
+
+    const anos = Math.floor(totalDias / 365);
+    const meses = Math.floor((totalDias % 365) / 30);
+    const diasRestantes = Math.floor((totalDias % 365) % 30);
+
+    return `${anos} ano(s), ${meses} mês(es) e ${diasRestantes} dia(s)`;
+  };
+  
   const somarDuracoes = (jobs) => {
     let totalYears = 0;
     let totalMonths = 0;
@@ -174,13 +217,14 @@ export default function RetirementCalculator() {
     const doc = new jsPDF();
     let y = 20;
 
-    const totalBeforeSpecial = parseFloat(sessionStorage.getItem("totalBeforeSpecial")) || 0;
-    const totalBeforeCommon = parseFloat(sessionStorage.getItem("totalBeforeCommon")) || 0;
-    const totalAfterSpecial = parseFloat(sessionStorage.getItem("totalAfterSpecial")) || 0;
-    const totalAfterCommon = parseFloat(sessionStorage.getItem("totalAfterCommon")) || 0;
-
     const jobsBeforeCutoffSpecial = JSON.parse(sessionStorage.getItem("jobsBeforeCutoffSpecial")) || [];
     const jobsBeforeCutoffCommon = JSON.parse(sessionStorage.getItem("jobsBeforeCutoffCommon")) || [];
+
+    const totalEspecialConvertido = somarDuracoesComMultiplicador(jobsBeforeCutoffSpecial, true, gender);
+    const totalComum = somarDuracoes(jobsBeforeCutoffCommon);
+
+    const somatoriaTotalAntes = somarDuracoesTextuais(totalEspecialConvertido, totalComum);
+
     const jobsAfterCutoffSpecial = JSON.parse(sessionStorage.getItem("jobsAfterCutoffSpecial")) || [];
     const jobsAfterCutoffCommon = JSON.parse(sessionStorage.getItem("jobsAfterCutoffCommon")) || [];
 
@@ -208,11 +252,12 @@ export default function RetirementCalculator() {
 
     if (jobsBeforeCutoffSpecial.length > 0) {
       jobsBeforeCutoffSpecial.forEach((job, idx) => {
-        doc.text(`${idx + 1}. Período de ${formatDate(job.entryDate)} a ${formatDate(job.exitDate)} - Total convertido = ${formatDuration(job.entryDate, job.exitDate)
+        doc.text(`${idx + 1}. Período de ${formatDate(job.entryDate)} a ${formatDate(job.exitDate)} - Total sem conversão = ${formatDuration(job.entryDate, job.exitDate)
 }`, 20, y);
         y += 7;
       });
-      doc.text(`Total especial convertido = ${somarDuracoes(jobsBeforeCutoffSpecial)}`, 20, y);
+      doc.text(`Total especial convertido = ${somarDuracoesComMultiplicador(jobsBeforeCutoffSpecial, true, gender)
+}`, 20, y);
       y += 10;
     } else {
       doc.text("Nenhum período especial antes da reforma.", 20, y);
@@ -235,7 +280,7 @@ export default function RetirementCalculator() {
       y += 10;
     }
 
-    doc.text(`SOMATÓRIA (comum + especial convertido) = ${somarDuracoes([...jobsBeforeCutoffSpecial, ...jobsBeforeCutoffCommon])}`, 20, y);
+    doc.text(`SOMATÓRIA (comum + especial convertido) = ${somatoriaTotalAntes}`, 20, y);
     y += 15;
 
     // Depois da reforma
@@ -535,10 +580,11 @@ export default function RetirementCalculator() {
       }
     });
 
-    const totalBeforeSpecial = somarDuracoes(jobsBeforeCutoffSpecial);
-    const totalBeforeCommon = somarDuracoes(jobsBeforeCutoffCommon);
-    const totalAfterSpecial = somarDuracoes(jobsAfterCutoffSpecial);
-    const totalAfterCommon = somarDuracoes(jobsAfterCutoffCommon);
+    const totalBeforeSpecial = somarDuracoesComMultiplicador(jobsBeforeCutoffSpecial, true, gender);
+
+    const totalBeforeCommon = somarDuracoesComMultiplicador(jobsBeforeCutoffCommon, false, gender);
+    const totalAfterSpecial = somarDuracoesComMultiplicador(jobsAfterCutoffSpecial, false, gender);
+    const totalAfterCommon = somarDuracoesComMultiplicador(jobsAfterCutoffCommon, false, gender);
 
     sessionStorage.setItem("jobsBeforeCutoffSpecial", JSON.stringify(jobsBeforeCutoffSpecial));
     sessionStorage.setItem("jobsBeforeCutoffCommon", JSON.stringify(jobsBeforeCutoffCommon));
@@ -613,13 +659,17 @@ export default function RetirementCalculator() {
   }
   
   if (screen === "result") {
-    const totalBeforeSpecial = parseFloat(sessionStorage.getItem("totalBeforeSpecial")) || 0;
-    const totalBeforeCommon = parseFloat(sessionStorage.getItem("totalBeforeCommon")) || 0;
-    const totalAfterSpecial = parseFloat(sessionStorage.getItem("totalAfterSpecial")) || 0;
-    const totalAfterCommon = parseFloat(sessionStorage.getItem("totalAfterCommon")) || 0;
 
     const jobsBeforeCutoffSpecial = JSON.parse(sessionStorage.getItem("jobsBeforeCutoffSpecial")) || [];
     const jobsBeforeCutoffCommon = JSON.parse(sessionStorage.getItem("jobsBeforeCutoffCommon")) || [];
+
+    // Obtendo textos formatados
+    const totalEspecialConvertido = somarDuracoesComMultiplicador(jobsBeforeCutoffSpecial, true, gender);
+    const totalComum = somarDuracoes(jobsBeforeCutoffCommon);
+
+    // **Aqui calcula a somatória correta:**
+    const somatoriaTotalAntes = somarDuracoesTextuais(totalEspecialConvertido, totalComum);
+
     const jobsAfterCutoffSpecial = JSON.parse(sessionStorage.getItem("jobsAfterCutoffSpecial")) || [];
     const jobsAfterCutoffCommon = JSON.parse(sessionStorage.getItem("jobsAfterCutoffCommon")) || [];
 
@@ -635,11 +685,12 @@ export default function RetirementCalculator() {
           <ul>
             {jobsBeforeCutoffSpecial.map((job, idx) => (
               <li key={idx}>
-                {idx + 1}. Período de {formatDate(job.entryDate)} a {formatDate(job.exitDate)} Total convertido = {formatDuration(job.entryDate, job.exitDate)
+                {idx + 1}. Período de {formatDate(job.entryDate)} a {formatDate(job.exitDate)} Total sem conversão = {formatDuration(job.entryDate, job.exitDate)
 }
               </li>
             ))}
-            <li><strong>Total especial convertido = {somarDuracoes(jobsBeforeCutoffSpecial)}
+            <li><strong>Total especial convertido = {somarDuracoesComMultiplicador(jobsBeforeCutoffSpecial, true, gender)
+}
 </strong></li>
           </ul>
         ) : <p>Nenhum período especial antes da reforma.</p>}
@@ -657,7 +708,7 @@ export default function RetirementCalculator() {
           </ul>
         ) : <p>Nenhum período comum antes da reforma.</p>}
 
-        <p><strong>SOMATÓRIA (comum + especial convertido) = {somarDuracoes([...jobsBeforeCutoffSpecial, ...jobsBeforeCutoffCommon])}</strong></p>
+        <p><strong>SOMATÓRIA (comum + especial convertido) = {somatoriaTotalAntes}</strong></p>
 
         <hr style={{ margin: "30px 0", border: "1px solid #ccc" }} />
 
