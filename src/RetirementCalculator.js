@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from "react";
 import "./RetirementCalculator.css";
 import { jsPDF } from "jspdf";
+import { intervalToDuration } from 'date-fns';
 
 export default function RetirementCalculator() {
   const [name, setName] = useState("");
@@ -21,19 +22,119 @@ export default function RetirementCalculator() {
   const [countdown, setCountdown] = useState(10);
   const [dots, setDots] = useState("");
   const [qrCodeCopyPaste, setQrCodeCopyPaste] = useState("");
+  const [birthDate, setBirthDate] = useState("");
 
   const sessionId = sessionStorage.getItem("sessionId") || generateSessionId();
 
   const formatDate = (dateStr) => {
     if (!dateStr) return "Em andamento";
-    const date = new Date(dateStr);
-    return date.toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit", year: "numeric" });
-  };  
+    const [year, month, day] = dateStr.split('-');
+    return `${day}/${month}/${year}`;
+  };
+
+  const parseLocalDate = (dateStr) => {
+    if (!dateStr) return null;  // ou new Date() se preferir
+    if (typeof dateStr === 'string') {
+      const [year, month, day] = dateStr.split('-').map(Number);
+      return new Date(year, month - 1, day);
+    }
+    if (dateStr instanceof Date) {
+      return dateStr;
+    }
+    console.warn('parseLocalDate recebeu tipo inesperado:', dateStr);
+    return null;
+  };
+
+  const formatDuration = (startDate, endDate) => {
+    const start = parseLocalDate(startDate);
+    const end = endDate ? parseLocalDate(endDate) : new Date();
+
+    if (isNaN(start) || isNaN(end)) {
+      return `Data inválida`;
+    }
+
+    const duration = intervalToDuration({
+      start,
+      end,
+    });
+
+    return `${duration.years ?? 0} ano(s), ${duration.months ?? 0} mês(es) e ${duration.days ?? 0} dia(s)`;
+  };
+
+
+  const somarDuracoes = (jobs) => {
+    let totalYears = 0;
+    let totalMonths = 0;
+    let totalDays = 0;
+
+    jobs.forEach((job) => {
+      const start = parseLocalDate(job.entryDate);
+      const end = job.exitDate ? parseLocalDate(job.exitDate) : new Date();
+
+      if (!start || isNaN(start) || !end || isNaN(end)) {
+        console.warn("Data inválida detectada: ", job);
+        return;
+      }
+    
+      if (isNaN(start) || isNaN(end)) {
+        console.warn("Data inválida detectada: ", job);
+        return;
+      }
+
+      const duration = intervalToDuration({ start, end });
+
+      totalYears += duration.years ?? 0;
+      totalMonths += duration.months ?? 0;
+      totalDays += duration.days ?? 0;
+    });
+
+    // Ajuste de dias e meses para anos
+    totalMonths += Math.floor(totalDays / 30);
+    totalDays = totalDays % 30;
+
+    totalYears += Math.floor(totalMonths / 12);
+    totalMonths = totalMonths % 12;
+
+    return `${totalYears} ano(s), ${totalMonths} mês(es) e ${totalDays} dia(s)`;
+  };
 
   function generateSessionId() {
     const id = Math.random().toString(36).substring(2, 15);
     sessionStorage.setItem("sessionId", id);
     return id;
+  }
+
+  function ajustarPeriodosConcomitantes(jobs) {
+    if (jobs.length === 0) return [];
+
+    // Ordenar por data de entrada
+    const sortedJobs = [...jobs].sort((a, b) => parseLocalDate(a.entryDate) - parseLocalDate(b.entryDate));
+
+    const ajustados = [];
+    let lastEnd = null;
+
+    for (const job of sortedJobs) {
+      const entry = parseLocalDate(job.entryDate);
+      const exit = parseLocalDate(job.exitDate);
+
+      if (!lastEnd || entry > lastEnd) {
+        // Sem sobreposição, adiciona normalmente
+        ajustados.push(job);
+        lastEnd = exit;
+      } else if (exit > lastEnd) {
+        // Sobreposição parcial: cria novo período após o fim do último
+        const newJob = {
+            ...job,
+            entryDate: lastEnd.toISOString().split('T')[0],
+            exitDate: job.exitDate
+        };
+        ajustados.push(newJob);
+        lastEnd = exit;
+      }
+      // Caso totalmente contido, ignora o job.
+    }
+
+    return ajustados;
   }
 
   const removeJob = (indexToRemove) => {
@@ -54,7 +155,6 @@ export default function RetirementCalculator() {
             };
         }
 
-        grouped[job.companyName].totalYears += job.diffYears;
         grouped[job.companyName].periods.push(job);
 
         // 🔹 Se qualquer período for insalubre, marcar como especial
@@ -65,73 +165,122 @@ export default function RetirementCalculator() {
 
     return Object.entries(grouped).map(([companyName, data]) => ({
         companyName,
-        totalYears: data.totalYears,
         periods: data.periods,
         isSpecial: data.isSpecial,
     }));
   };
 
-  const formatYearsMonthsDays = (years) => {
-    const totalDays = Math.round(years * 365.25);
-    const yearsPart = Math.floor(totalDays / 365);
-    const remainingDays = totalDays % 365;
-    const monthsPart = Math.floor(remainingDays / 30);
-    const daysPart = remainingDays % 30;
-  
-    return `${yearsPart} ano(s), ${monthsPart} mês(es) e ${daysPart} dia(s)`;
-  };  
-
   const handleExportPDF = () => {
     const doc = new jsPDF();
     let y = 20;
-  
-    const totalYearsBeforeCutoff = parseFloat(sessionStorage.getItem("totalYearsBeforeCutoff")) || 0;
-    const totalYearsAfterCutoff = parseFloat(sessionStorage.getItem("totalYearsAfterCutoff")) || 0;
-    const jobsBeforeCutoff = JSON.parse(sessionStorage.getItem("jobsBeforeCutoff")) || [];
-    const jobsAfterCutoff = JSON.parse(sessionStorage.getItem("jobsAfterCutoff")) || [];
-  
+
+    const totalBeforeSpecial = parseFloat(sessionStorage.getItem("totalBeforeSpecial")) || 0;
+    const totalBeforeCommon = parseFloat(sessionStorage.getItem("totalBeforeCommon")) || 0;
+    const totalAfterSpecial = parseFloat(sessionStorage.getItem("totalAfterSpecial")) || 0;
+    const totalAfterCommon = parseFloat(sessionStorage.getItem("totalAfterCommon")) || 0;
+
+    const jobsBeforeCutoffSpecial = JSON.parse(sessionStorage.getItem("jobsBeforeCutoffSpecial")) || [];
+    const jobsBeforeCutoffCommon = JSON.parse(sessionStorage.getItem("jobsBeforeCutoffCommon")) || [];
+    const jobsAfterCutoffSpecial = JSON.parse(sessionStorage.getItem("jobsAfterCutoffSpecial")) || [];
+    const jobsAfterCutoffCommon = JSON.parse(sessionStorage.getItem("jobsAfterCutoffCommon")) || [];
+
     doc.setFontSize(16);
     doc.text("Relatório de Contribuições", 20, y);
-    
     y += 10;
-  
+
     doc.setFontSize(12);
     doc.text(`Nome: ${name}`, 20, y);
     y += 10;
     doc.text(`Gênero: ${gender === "male" ? "Homem" : "Mulher"}`, 20, y);
     y += 15;
-  
-    // Regras Antigas
+
+    // Antes da reforma
     doc.setFontSize(14);
-    doc.text("Regras Antigas (Até 13 de Novembro de 2019)", 20, y);
-    y += 10;
+    doc.text("TEMPO CONTRIBUÍDO ATÉ 13/11/2019", 20, y);
+    y += 8;
     doc.setFontSize(12);
-    doc.text(`Total contribuído: ${Math.floor(totalYearsBeforeCutoff)} anos e ${Math.round((totalYearsBeforeCutoff - Math.floor(totalYearsBeforeCutoff)) * 12)} meses`, 20, y);
+    doc.text("(conforme regras vigentes até a reforma da previdência)", 20, y);
     y += 10;
-  
-    jobsBeforeCutoff.forEach((job) => {
-      doc.text(`- ${job.companyName}: ${job.entryDate} até ${job.exitDate} (${formatYearsMonthsDays(job.diffYears)}
- anos)`, 20, y);
-      y += 8;
-    });
-  
-    y += 10;
-  
-    // Regras de Transição
+
+    doc.setFontSize(12);
+    doc.text("Período de trabalho Especial (conversão 25 anos)", 20, y);
+    y += 8;
+
+    if (jobsBeforeCutoffSpecial.length > 0) {
+      jobsBeforeCutoffSpecial.forEach((job, idx) => {
+        doc.text(`${idx + 1}. Período de ${formatDate(job.entryDate)} a ${formatDate(job.exitDate)} - Total convertido = ${formatDuration(job.entryDate, job.exitDate)
+}`, 20, y);
+        y += 7;
+      });
+      doc.text(`Total especial convertido = ${somarDuracoes(jobsBeforeCutoffSpecial)}`, 20, y);
+      y += 10;
+    } else {
+      doc.text("Nenhum período especial antes da reforma.", 20, y);
+      y += 10;
+    }
+
+    doc.text("Período de trabalho Comum", 20, y);
+    y += 8;
+
+    if (jobsBeforeCutoffCommon.length > 0) {
+      jobsBeforeCutoffCommon.forEach((job, idx) => {
+        doc.text(`${idx + 1}. Período de ${formatDate(job.entryDate)} a ${formatDate(job.exitDate)} - Total = ${formatDuration(job.entryDate, job.exitDate)
+}`, 20, y);
+        y += 7;
+      });
+      doc.text(`Total comum = ${somarDuracoes(jobsBeforeCutoffCommon)}`, 20, y);
+      y += 10;
+    } else {
+      doc.text("Nenhum período comum antes da reforma.", 20, y);
+      y += 10;
+    }
+
+    doc.text(`SOMATÓRIA (comum + especial convertido) = ${somarDuracoes([...jobsBeforeCutoffSpecial, ...jobsBeforeCutoffCommon])}`, 20, y);
+    y += 15;
+
+    // Depois da reforma
     doc.setFontSize(14);
-    doc.text("Regras de Transição (Depois de 13 de Novembro de 2019)", 20, y);
-    y += 10;
+    doc.text("Período de Trabalho Especial", 20, y);
+    y += 8;
     doc.setFontSize(12);
-    doc.text(`Total trabalhado: ${Math.floor(totalYearsAfterCutoff)} anos e ${Math.round((totalYearsAfterCutoff - Math.floor(totalYearsAfterCutoff)) * 12)} meses`, 20, y);
+    doc.text("(após 13/11/2019 a contagem é sem conversão - 1 para 1)", 20, y);
     y += 10;
-  
-    jobsAfterCutoff.forEach((job) => {
-      doc.text(`- ${job.companyName}: ${job.entryDate} até ${job.exitDate} (${formatYearsMonthsDays(job.diffYears)} anos)`, 20, y);
-      y += 8;
-    });
-  
+
+    if (jobsAfterCutoffSpecial.length > 0) {
+      jobsAfterCutoffSpecial.forEach((job, idx) => {
+        doc.text(`${idx + 1}. Período de ${formatDate(job.entryDate)} a ${formatDate(job.exitDate)} - Total = ${formatDuration(job.entryDate, job.exitDate)
+}`, 20, y);
+        y += 7;
+      });
+      doc.text(`Total especial = ${somarDuracoes(jobsAfterCutoffSpecial)}`, 20, y);
+      y += 10;
+    } else {
+      doc.text("Nenhum período especial após a reforma.", 20, y);
+      y += 10;
+    }
+
+    doc.text("Período de trabalho Comum", 20, y);
+    y += 8;
+
+    if (jobsAfterCutoffCommon.length > 0) {
+      jobsAfterCutoffCommon.forEach((job, idx) => {
+        doc.text(`${idx + 1}. Período de ${formatDate(job.entryDate)} a ${formatDate(job.exitDate)} - Total = ${formatDuration(job.entryDate, job.exitDate)
+}`, 20, y);
+        y += 7;
+      });
+      doc.text(`Total comum = ${somarDuracoes(jobsAfterCutoffCommon)}`, 20, y);
+      y += 10;
+    } else {
+      doc.text("Nenhum período comum após a reforma.", 20, y);
+      y += 10;
+    }
+
+    doc.text(`SOMATÓRIA (comum + especial) = ${somarDuracoes([...jobsAfterCutoffSpecial, ...jobsAfterCutoffCommon])}`, 20, y);
+    y += 15;
+
     doc.save("relatorio_trabalho.pdf");
   };
+
 
   const handleEdit = () => {
     const storedName = sessionStorage.getItem("name");
@@ -219,8 +368,9 @@ export default function RetirementCalculator() {
     const cutoffDate = new Date("2019-12-31");
   
     return jobs.map((job) => {
-      const entry = new Date(job.entryDate);
-      const exit = new Date(job.exitDate);
+      const entry = parseLocalDate(job.entryDate);
+      const exit = job.exitDate ? parseLocalDate(job.exitDate) : new Date();
+
   
       if (exit > cutoffDate) {
         exit.setFullYear(2019, 11, 31); // Ajusta para 31/12/2019
@@ -230,16 +380,13 @@ export default function RetirementCalculator() {
         return null; // Ignora períodos que começam após 2019
       }
   
-      const diffYears = (exit - entry) / (1000 * 60 * 60 * 24 * 365.25);
-      return { ...job, diffYears };
+      return { ...job };
+
     }).filter(Boolean);
   };  
 
   const addJob = () => {
     if (!entryDate || !exitDate || !companyName) return;
-    const start = new Date(entryDate);
-    const end = new Date(exitDate);
-    const diffYears = (end - start) / (1000 * 60 * 60 * 24 * 365.25);
     const conversionFactor = insalubre ? (gender === "male" ? 1.4 : 1.2) : 1;
 
     setJobs([
@@ -248,9 +395,8 @@ export default function RetirementCalculator() {
             companyName,
             entryDate,
             exitDate,
-            diffYears,
             conversionFactor,
-            insalubre,  // 🔹 Garante que o atributo seja salvo
+            insalubre,
         }
     ]);
 
@@ -261,24 +407,43 @@ export default function RetirementCalculator() {
   };
 
   const calculateRetirement = () => {
+    // Verifica se há um período preenchido ainda não adicionado à lista
+    if (companyName && entryDate && exitDate) {
+      const conversionFactor = insalubre ? (gender === "male" ? 1.4 : 1.2) : 1;
+
+      const newJob = {
+        companyName,
+        entryDate,
+        exitDate,
+        conversionFactor,
+        insalubre,
+      };
+
+      setJobs([...jobs, newJob]);
+      setCompanyName("");
+      setEntryDate("");
+      setExitDate("");
+      setInsalubre(false);
+
+    }
+
     const filteredJobs = filterJobsUntil2019();
     const total = filteredJobs.reduce((acc, job) => acc + job.diffYears * job.conversionFactor, 0);    
     const requiredYears = gender === "male" ? 35 : 30;
     const remaining = Math.max(0, requiredYears - total);
-    
+
     setTotalYears(total);
     setRemainingYears(remaining);
-  
-    // 🔹 Salva no sessionStorage para o botão Editar funcionar corretamente
+
     sessionStorage.setItem("name", name);
     sessionStorage.setItem("gender", gender);
     sessionStorage.setItem("jobs", JSON.stringify(jobs));
     sessionStorage.setItem("totalYears", total);
     sessionStorage.setItem("remainingYears", remaining);
-    
-    setScreen("payment");
-  };  
 
+    setScreen("payment");
+  };
+  
   const copyToClipboard = () => {
     navigator.clipboard.writeText(qrCodeCopyPaste);
     alert("Código Pix copiado!");
@@ -321,47 +486,73 @@ export default function RetirementCalculator() {
   };
 
   const proceedToResult = () => {
-    const cutoffDate = new Date("2019-11-13"); // Data da Reforma da Previdência
-    const jobsBeforeCutoff = [];
-    const jobsAfterCutoff = [];
-  
-    jobs.forEach((job) => {
-      const entry = new Date(job.entryDate);
-      const exit = job.exitDate ? new Date(job.exitDate) : new Date(); // Se não houver saída, assume "hoje"
-  
+    const cutoffDate = new Date("2019-11-13");
+
+    const jobsBeforeCutoffSpecial = [];
+    const jobsBeforeCutoffCommon = [];
+    const jobsAfterCutoffSpecial = [];
+    const jobsAfterCutoffCommon = [];
+
+    const nonOverlappingJobs = ajustarPeriodosConcomitantes(jobs);
+
+    nonOverlappingJobs.forEach((job) => {
+      const entry = parseLocalDate(job.entryDate);
+      const exit = job.exitDate ? parseLocalDate(job.exitDate) : new Date();
+
+      // Antes da reforma
       if (entry < cutoffDate) {
         const adjustedExitBeforeCutoff = exit > cutoffDate ? cutoffDate : exit;
-        const diffBeforeCutoff = (adjustedExitBeforeCutoff - entry) / (1000 * 60 * 60 * 24 * 365.25);
-        jobsBeforeCutoff.push({
+
+        const formattedJob = {
           ...job,
-          entryDate: formatDate(job.entryDate),
-          exitDate: formatDate(adjustedExitBeforeCutoff),
-          diffYears: diffBeforeCutoff * job.conversionFactor,
-        });
+          entryDate: entry.toISOString().split('T')[0],
+          exitDate: adjustedExitBeforeCutoff.toISOString().split('T')[0]
+        };
+
+
+        if (job.insalubre) {
+          jobsBeforeCutoffSpecial.push(formattedJob);
+        } else {
+          jobsBeforeCutoffCommon.push(formattedJob);
+        }
       }
-  
+
+      // Depois da reforma
       if (exit > cutoffDate) {
         const adjustedEntryAfterCutoff = entry < cutoffDate ? cutoffDate : entry;
-        const diffAfterCutoff = (exit - adjustedEntryAfterCutoff) / (1000 * 60 * 60 * 24 * 365.25);
-        jobsAfterCutoff.push({
+
+        const formattedJob = {
           ...job,
-          entryDate: formatDate(adjustedEntryAfterCutoff),
-          exitDate: formatDate(job.exitDate),
-          diffYears: diffAfterCutoff * job.conversionFactor,
-        });
+          entryDate: adjustedEntryAfterCutoff.toISOString().split('T')[0],
+          exitDate: exit.toISOString().split('T')[0]
+        };
+
+        if (job.insalubre) {
+          jobsAfterCutoffSpecial.push(formattedJob);
+        } else {
+          jobsAfterCutoffCommon.push(formattedJob);
+        }
       }
     });
-  
-    const totalYearsBeforeCutoff = jobsBeforeCutoff.reduce((acc, job) => acc + job.diffYears, 0);
-    const totalYearsAfterCutoff = jobsAfterCutoff.reduce((acc, job) => acc + job.diffYears, 0);
-  
-    sessionStorage.setItem("totalYearsBeforeCutoff", totalYearsBeforeCutoff);
-    sessionStorage.setItem("totalYearsAfterCutoff", totalYearsAfterCutoff);
-    sessionStorage.setItem("jobsBeforeCutoff", JSON.stringify(jobsBeforeCutoff));
-    sessionStorage.setItem("jobsAfterCutoff", JSON.stringify(jobsAfterCutoff));
-  
+
+    const totalBeforeSpecial = somarDuracoes(jobsBeforeCutoffSpecial);
+    const totalBeforeCommon = somarDuracoes(jobsBeforeCutoffCommon);
+    const totalAfterSpecial = somarDuracoes(jobsAfterCutoffSpecial);
+    const totalAfterCommon = somarDuracoes(jobsAfterCutoffCommon);
+
+    sessionStorage.setItem("jobsBeforeCutoffSpecial", JSON.stringify(jobsBeforeCutoffSpecial));
+    sessionStorage.setItem("jobsBeforeCutoffCommon", JSON.stringify(jobsBeforeCutoffCommon));
+    sessionStorage.setItem("jobsAfterCutoffSpecial", JSON.stringify(jobsAfterCutoffSpecial));
+    sessionStorage.setItem("jobsAfterCutoffCommon", JSON.stringify(jobsAfterCutoffCommon));
+
+    sessionStorage.setItem("totalBeforeSpecial", totalBeforeSpecial);
+    sessionStorage.setItem("totalBeforeCommon", totalBeforeCommon);
+    sessionStorage.setItem("totalAfterSpecial", totalAfterSpecial);
+    sessionStorage.setItem("totalAfterCommon", totalAfterCommon);
+
     setScreen("result");
-  };  
+  };
+
 
   if (screen === "payment") {
     return (
@@ -422,84 +613,89 @@ export default function RetirementCalculator() {
   }
   
   if (screen === "result") {
-    const totalYearsBeforeCutoff = parseFloat(sessionStorage.getItem("totalYearsBeforeCutoff")) || 0;
-    const totalYearsAfterCutoff = parseFloat(sessionStorage.getItem("totalYearsAfterCutoff")) || 0;
-    const jobsBeforeCutoff = JSON.parse(sessionStorage.getItem("jobsBeforeCutoff")) || [];
-    const jobsAfterCutoff = JSON.parse(sessionStorage.getItem("jobsAfterCutoff")) || [];
-  
-    // 🔹 Agrupa os empregos antes e depois da reforma
-    const groupedJobsBefore = groupJobsByCompany(jobsBeforeCutoff);
-    const groupedJobsAfter = groupJobsByCompany(jobsAfterCutoff);
+    const totalBeforeSpecial = parseFloat(sessionStorage.getItem("totalBeforeSpecial")) || 0;
+    const totalBeforeCommon = parseFloat(sessionStorage.getItem("totalBeforeCommon")) || 0;
+    const totalAfterSpecial = parseFloat(sessionStorage.getItem("totalAfterSpecial")) || 0;
+    const totalAfterCommon = parseFloat(sessionStorage.getItem("totalAfterCommon")) || 0;
+
+    const jobsBeforeCutoffSpecial = JSON.parse(sessionStorage.getItem("jobsBeforeCutoffSpecial")) || [];
+    const jobsBeforeCutoffCommon = JSON.parse(sessionStorage.getItem("jobsBeforeCutoffCommon")) || [];
+    const jobsAfterCutoffSpecial = JSON.parse(sessionStorage.getItem("jobsAfterCutoffSpecial")) || [];
+    const jobsAfterCutoffCommon = JSON.parse(sessionStorage.getItem("jobsAfterCutoffCommon")) || [];
 
     return (
       <div className="card result-section">
-        <h2>Resultado do Cálculo</h2>
-        {/* Regras antes da Reforma (até 13/11/2019) */}
-        <h3>Regras antes da Reforma (até 13/11/2019)</h3>
-        <p className="info-text">
-          Os períodos abaixo incluem trabalho comum e especial, conforme regras vigentes até a reforma da previdência.
-        </p>
-        <p>
-          <strong>{name}</strong>, você já contribuiu {formatYearsMonthsDays(totalYearsBeforeCutoff)} até 13/11/2019.
-        </p>
-        <h4>Histórico de Contribuições (Antes da Reforma)</h4>
+        <h2>RESULTADO DO CÁLCULO</h2>
 
-        {groupedJobsBefore.length > 0 ? (
+        <h3>TEMPO CONTRIBUÍDO ATÉ 13/11/2019</h3>
+        <p>(conforme regras vigentes até a reforma da previdência)</p>
+
+        <h4>Período de trabalho Especial (conversão 25 anos)</h4>
+        {jobsBeforeCutoffSpecial.length > 0 ? (
           <ul>
-            {groupedJobsBefore.map((group, index) => (
-              <li key={index}>
-                <strong>{group.companyName}</strong>
-                {group.isSpecial && <p className="special-text">🔥 Período de Trabalho Especial</p>}
-                <ul>
-                  {group.periods.map((job, subIndex) => (
-                    <li key={subIndex}>
-                      Início: {job.entryDate} | Fim: {job.exitDate} ({formatYearsMonthsDays(job.diffYears)})
-                      {job.insalubre && <span style={{ color: "red", fontWeight: "bold" }}> [ESPECIAL]</span>}
-                    </li>
-                  ))}
-                  <li><strong>Total (comum + especial):</strong> {formatYearsMonthsDays(group.totalYears)}</li>
-                </ul>
+            {jobsBeforeCutoffSpecial.map((job, idx) => (
+              <li key={idx}>
+                {idx + 1}. Período de {formatDate(job.entryDate)} a {formatDate(job.exitDate)} Total convertido = {formatDuration(job.entryDate, job.exitDate)
+}
               </li>
             ))}
+            <li><strong>Total especial convertido = {somarDuracoes(jobsBeforeCutoffSpecial)}
+</strong></li>
           </ul>
-        ) : (
-          <p>Nenhum emprego antes de 13/11/2019.</p>
-        )}
+        ) : <p>Nenhum período especial antes da reforma.</p>}
 
-        {/* Regras de Transição (Depois de 13/11/2019) */}
-        <h3>Regras de Transição (Depois de 13/11/2019)</h3>
-        <p className="info-text">
-          Períodos trabalhados sob as novas regras da previdência.
-        </p>
-        <p>
-          <strong>{name}</strong>, você já contribuiu {formatYearsMonthsDays(totalYearsAfterCutoff)} após 13/11/2019.
-        </p>
-        <h4>Histórico de Contribuições (Após a Reforma)</h4>
-
-        {groupedJobsAfter.length > 0 ? (
+        <h4>Período de trabalho Comum</h4>
+        {jobsBeforeCutoffCommon.length > 0 ? (
           <ul>
-            {groupedJobsAfter.map((group, index) => (
-              <li key={index}>
-                <strong>{group.companyName}</strong>
-                <ul>
-                  {group.periods.map((job, subIndex) => (
-                    <li key={subIndex}>
-                      Início: {job.entryDate} | Fim: {job.exitDate} ({formatYearsMonthsDays(job.diffYears)})
-                    </li>
-                  ))}
-                  <li><strong>Total (comum + especial):</strong> {formatYearsMonthsDays(group.totalYears)}</li>
-                </ul>
+            {jobsBeforeCutoffCommon.map((job, idx) => (
+              <li key={idx}>
+                {idx + 1}. Período de {formatDate(job.entryDate)} a {formatDate(job.exitDate)} Total = {formatDuration(job.entryDate, job.exitDate)
+}
               </li>
             ))}
+            <li><strong>Total comum = {somarDuracoes(jobsBeforeCutoffCommon)}</strong></li>
           </ul>
-        ) : (
-          <p>Nenhum emprego após 13/11/2019.</p>
-        )}
+        ) : <p>Nenhum período comum antes da reforma.</p>}
+
+        <p><strong>SOMATÓRIA (comum + especial convertido) = {somarDuracoes([...jobsBeforeCutoffSpecial, ...jobsBeforeCutoffCommon])}</strong></p>
+
+        <hr style={{ margin: "30px 0", border: "1px solid #ccc" }} />
+
+        <h3>Período de Trabalho Especial</h3>
+        <p>(após 13/11/2019 a contagem é sem conversão - 1 para 1)</p>
+
+        {jobsAfterCutoffSpecial.length > 0 ? (
+          <ul>
+            {jobsAfterCutoffSpecial.map((job, idx) => (
+              <li key={idx}>
+                {idx + 1}. Período de {formatDate(job.entryDate)} a {formatDate(job.exitDate)} Total = {formatDuration(job.entryDate, job.exitDate)
+}
+              </li>
+            ))}
+            <li><strong>Total especial = {somarDuracoes(jobsAfterCutoffSpecial)}</strong></li>
+          </ul>
+        ) : <p>Nenhum período especial após a reforma.</p>}
+
+        <h4>Período de trabalho Comum</h4>
+        {jobsAfterCutoffCommon.length > 0 ? (
+          <ul>
+            {jobsAfterCutoffCommon.map((job, idx) => (
+              <li key={idx}>
+                {idx + 1}. Período de {formatDate(job.entryDate)} a {formatDate(job.exitDate)} Total = {formatDuration(job.entryDate, job.exitDate)
+}
+              </li>
+            ))}
+            <li><strong>Total comum = {somarDuracoes(jobsAfterCutoffCommon)}</strong></li>
+          </ul>
+        ) : <p>Nenhum período comum após a reforma.</p>}
+
+        <p><strong>SOMATÓRIA (comum + especial) = {somarDuracoes([...jobsAfterCutoffSpecial, ...jobsAfterCutoffCommon])}</strong></p>
 
         <div className="button-group">
           <button className="button" onClick={handleEdit}>Editar</button>
           <button className="button" onClick={handleExportPDF}>Exportar PDF</button>
         </div>
+
         <p className="info-text" style={{ marginTop: "20px", fontSize: "12px" }}>
           <strong>Trabalho especial:</strong> Pode incluir profissões ou atividades com insalubridade, ruídos altos, agentes químicos, entre outros, desde que comprovado por documentos de trabalho.
           <br />
@@ -513,16 +709,26 @@ export default function RetirementCalculator() {
         </p>
       </div>
     );
-  }  
+  }
+
 
   return (
     <div className="wrapper">
       <div className="card">
-        <h2>Calculadora de Aposentadoria</h2>
+        <h2>Calculadora de Tempo Trabalhado/Contribuído</h2>
+        <p style={{ fontSize: "12px", marginTop: "5px" }}>
+          Esta ferramenta calcula o tempo de contribuição, mas <strong>não</strong> define se você já pode se aposentar. Para isso, é necessária uma análise especializada.
+        </p>
+
 
         <div className="form-group">
           <label>Nome:</label>
           <input type="text" placeholder="Seu Nome" value={name} onChange={(e) => setName(e.target.value)} />
+        </div>
+
+        <div className="form-group">
+          <label>Data de Nascimento:</label>
+          <input type="date" value={birthDate} onChange={(e) => setBirthDate(e.target.value)} />
         </div>
 
         <div className="form-group">
@@ -533,41 +739,101 @@ export default function RetirementCalculator() {
           </select>
         </div>
 
-        <h3 className="section-title">Adicionar Empregos</h3>
+        <h3 className="section-title">Adicionar Períodos Contribuídos</h3>
         <div className="add-job-section">
           <div className="form-group">
-            <label>Empresa:</label>
-            <input type="text" placeholder="Nome da Empresa" value={companyName} onChange={(e) => setCompanyName(e.target.value)} />
+            <label>Período:</label>
+            <input
+              type="text"
+              placeholder="Nome da empresa ou nome autônomo"
+              value={companyName}
+              onChange={(e) => setCompanyName(e.target.value)}
+            />
           </div>
           <div className="form-row">
             <div className="form-group half">
               <label>Entrada:</label>
-              <input type="date" value={entryDate} onChange={(e) => setEntryDate(e.target.value)} />
+              <input
+                type="date"
+                value={entryDate}
+                onChange={(e) => setEntryDate(e.target.value)}
+              />
             </div>
             <div className="form-group half">
               <label>Saída:</label>
-              <input type="date" value={exitDate} onChange={(e) => setExitDate(e.target.value)} />
+              <input
+                type="date"
+                value={exitDate}
+                onChange={(e) => setExitDate(e.target.value)}
+              />
             </div>
           </div>
           <div className="checkbox-container">
-          <label className="checkbox-label">
-            <input type="checkbox" checked={insalubre} onChange={() => setInsalubre(!insalubre)} />
-            Período especial?
-          </label>
+            <label className="checkbox-label">
+              <input
+                type="checkbox"
+                checked={insalubre}
+                onChange={() => setInsalubre(!insalubre)}
+              />
+              Período de trabalho especial?{" "}
+              <span style={{ fontSize: "12px" }}>(ruído, querosene, óleos, etc)</span>
+            </label>
+            <p style={{ fontSize: "12px", marginTop: "4px" }}>
+              Em caso de dúvida sobre o que é período especial,
+              <a
+                href="https://www.gov.br/pt-br/servicos/aposentadoria-especial"
+                target="_blank"
+                rel="noopener noreferrer"
+                style={{ marginLeft: "4px" }}
+              >
+                clique aqui
+              </a>.
+            </p>
           </div>
-          <button className="button" onClick={addJob}>
-            Adicionar Emprego
+        </div>
+
+        {/* Ícone ➕ para adicionar período manualmente */}
+        <div style={{ textAlign: "right", marginTop: "10px" }}>
+          <button
+            onClick={addJob}
+            style={{
+              background: "none",
+              border: "1px solid #3498db",
+              padding: "6px 12px",
+              borderRadius: "4px",
+              fontSize: "14px",
+              cursor: "pointer",
+              color: "#3498db",
+            }}
+            title="Adicionar período"
+          >
+            Inserir
           </button>
         </div>
 
+        {/* Lista de períodos adicionados */}
         {jobs.length > 0 && (
           <div className="job-list">
             {jobs.map((job, index) => (
-              <div key={index} className="job-item" style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                <span>{job.companyName} - ({job.entryDate} - {job.exitDate})</span>
+              <div
+                key={index}
+                className="job-item"
+                style={{
+                  display: "flex",
+                  justifyContent: "space-between",
+                  alignItems: "center",
+                }}
+              >
+                <span>
+                  {job.companyName} - ({formatDate(job.entryDate)} - {formatDate(job.exitDate)})
+                </span>
                 <button
                   className="button"
-                  style={{ backgroundColor: "#e74c3c", color: "#fff", marginLeft: "10px" }}
+                  style={{
+                    backgroundColor: "#e74c3c",
+                    color: "#fff",
+                    marginLeft: "10px",
+                  }}
                   onClick={() => removeJob(index)}
                 >
                   Remover
@@ -577,10 +843,20 @@ export default function RetirementCalculator() {
           </div>
         )}
 
+        {/* Botão calcular sempre inclui o preenchido, mesmo sem adicionar */}
         <button className="button button-primary" onClick={calculateRetirement}>
-          Calcular tempo de aposentadoria
+          Calcular tempo contribuído
         </button>
+
+
       </div>
+      <p style={{ fontSize: "12px", textAlign: "center", marginTop: "30px" }}>
+        Dúvidas ou problemas com o sistema? Entre em contato com o suporte:
+        <br />
+        <a href="mailto:suporte@seudominio.com" style={{ color: "#007bff" }}>
+          suporte@seudominio.com
+        </a>
+      </p>
     </div>
   );
 }
